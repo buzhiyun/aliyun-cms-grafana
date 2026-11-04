@@ -1,0 +1,17 @@
+# Development-time datasource provisioning for `docker compose up` (npm run server).
+# Replace the credentials with your own Aliyun AccessKey pair before use.
+apiVersion: 1
+
+datasources:
+  - name: 'CMS Grafana Service'
+    type: 'aliyun_cms_grafana_datasource'
+    access: proxy
+    isDefault: false
+    orgId: 1
+    version: 1
+    editable: true
+    jsonData:
+      userId: '1234567890' # Aliyun account id (numeric string)
+    secureJsonData:
+      cmsAccessKey: '<your-access-key-id>'
+      cmsSecretKey: '<your-access-key-secret>'

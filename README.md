@@ -1,38 +1,95 @@
-# aliyun-cms-grafana 2.0 服务端数据源安装使用说明文档
+# aliyun-cms-grafana
 
-## 安装依赖
-    2.0 服务端版本需要 Grafana 版本 7+ 
-    如果是旧版本 Grafana，只能安装 1.0 版本 https://github.com/aliyun/aliyun-cms-grafana/tree/v1.0
-## 1、直接安装云监控grafana数据源
-    a. 直接 从release 页面 https://github.com/aliyun/aliyun-cms-grafana/releases 里面下载 aliyun_cms_grafana_datasource_v2.0.tar.gz
-    b. 下载到 grafan的plugin目录中，解压缩 tar -xzf aliyun_cms_grafana_datasource_v2.0.tar.gz
-    c. 修改 conf/defaults.ini 允许未签名插件运行
-        allow_loading_unsigned_plugins = aliyun_cms_grafana_datasource
-    d. 重启grafana
+阿里云云监控（Cloud Monitor / CMS）的 Grafana 数据源插件。
 
-## 2、源代码安装
-    a. 前端编译
-        进入aliyun-cms-grafana目录下,执行grunt命令(需要安装nodejs和npm),则会按照Gruntfile.js里面的配置将项目里面的文件打包到指定的目录,
-        当前配置是将项目文件打包到dist目录下,发布的时候打包发布整个插件目录下的文件,dist目录下一定是经源文件编译后的。
-    b. 服务端编译
-    需要安装   
-        go 1.14   
-        mage
-        之后在目录中运行 mage -v， 会自动在 dist目录下生成 相应的二进制包。之后跟随前端代码统一发布
+v3.0 是一次完整的前端重写：插件不再基于 AngularJS（Angular 支持已在 Grafana 12 中被彻底移除），改为 React + TypeScript 的现代插件平台实现，查询结果以 DataFrame 返回。**插件 ID、查询参数模型、模板变量语法与 v1/v2 完全兼容，存量 dashboard 无需迁移。**
 
-    c. 部署
-        1）按照上面顺序编译完成后，代码都会到dist下面。包括前端文件和二进制可执行文件 cms-datasource*。
-        2）保证 cms-datasource* 都具有可执行权限。chmod +x cms-datasource*
-        3) 在grafana 的plugin目录中，创建 aliyun_cms_grafana_datasource 目录，把编译出来的dist目录拷贝到此
-        4) 修改 conf/defaults.ini 允许未签名插件运行
-            allow_loading_unsigned_plugins = aliyun_cms_grafana_datasource
-        5) 重启grafana
+## 环境要求
 
+| 组件 | 版本 |
+|---|---|
+| Grafana | **>= 10.4**（在 10.4 ~ 13.x 上工作；不再依赖 Angular） |
+| Node.js（构建） | >= 20 |
+| Go（构建后端） | >= 1.24 |
 
-## 3、配置云监控grafana数据源
-    a.进入grafana的数据源配置页面(Data Sources),点击Add data source进入配置表单页面,填入数据源名称(Name),
-        在数据源类型(Type)对应的下拉列表中选择CMS Grafana Service。
-    b. 配置你的AK 和阿里云ID
-        如果显示Success Data source is working,说明数据源配置成功,可以开始在grafana中访问阿里云监控的数据了。
-        具体可参考:https://help.aliyun.com/document_detail/109434.html?spm=a2c4g.11186623.6.565.70d048adQpRZsT
+## 安装
 
+### 方式一：直接安装 release
+
+1. 从 [releases](https://github.com/aliyun/aliyun-cms-grafana/releases) 下载 `aliyun_cms_grafana_datasource_v3.x.tar.gz`；
+2. 解压到 Grafana 插件目录：`tar -xzf aliyun_cms_grafana_datasource_v3.x.tar.gz -C <grafana插件目录>`；
+3. 未签名插件需要在 `conf/defaults.ini`（或环境变量）中放行：
+
+   ```ini
+   allow_loading_unsigned_plugins = aliyun_cms_grafana_datasource
+   ```
+
+   环境变量方式：`GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=aliyun_cms_grafana_datasource`
+4. 重启 Grafana。
+
+### 方式二：源码构建
+
+```bash
+# 前端
+npm install
+npm run build
+
+# 后端（需要 mage，见 Magefile.go）
+go run github.com/magefile/mage@latest build:backend     # 当前平台
+go run github.com/magefile/mage@latest build:linux       # linux 全架构
+
+# 产物都在 dist/ 目录，将整个 dist 目录作为插件目录安装
+```
+
+校验与测试：
+
+```bash
+npm run typecheck   # TypeScript 类型检查
+npm run lint        # eslint
+npm run test:ci     # jest 单元测试
+go vet ./...
+```
+
+### 本地开发
+
+```bash
+npm run dev         # webpack watch，热更新前端
+npm run server      # docker compose 启动带插件的 Grafana（默认 13.x，见 .config/）
+GRAFANA_VERSION=11.6.0 npm run server   # 指定 Grafana 版本
+```
+
+开发前先在 `provisioning/datasources/datasources.yml` 中填入你的 AK。
+
+## 配置数据源
+
+1. Grafana → Connections → Data sources → Add data source → **CMS Grafana Service**；
+2. 填写：
+   - **Aliyun UserId**：阿里云账号 ID（数字串），用于自定义监控（`acs_customMetric_<uid>`）与日志监控（`acs_logMonitor_<uid>`）命名空间；
+   - **AccessKeyId / AccessKeySecret**：保存在 secureJsonData 中，仅在保存时传输；
+3. Save & Test（后端会真实调用云监控 API 校验 AK 有效性）。
+
+## 查询
+
+查询编辑器支持：Namespace（项目）、Metric（监控项）、Period（聚合周期）、Group（应用分组）、Dimensions（维度，多选）、Y-column（统计值，多选）、X-column（时间轴字段，默认 `timestamp`）、Describe（序列名前缀）。
+
+## 模板变量语法（与 v1/v2 兼容）
+
+| 语法 | 说明 |
+|---|---|
+| `namespace(filter)` / `namespaces(filter)` | 云监控项目列表，按关键字过滤 |
+| `metric(namespace, filter)` / `metrics(...)` | 指定项目的监控项列表 |
+| `tagFilter(type, regionId, keyOrValue, tagKey)` / `tagsFilter(...)` | ECS/RDS 标签的 key 或 value，`type` 为 `ecs`/`rds` |
+| `tag(type, regionId, resourceType, resourceId, tag)` / `tags(...)` | 按标签反查资源 ID |
+| `dimension(namespace, metric, instanceId, filter)` / `dimensions(...)` | 指定监控项的可用维度值 |
+
+参数传 `null` 表示不过滤。示例见 `testdata/*.json` 示例 dashboard。
+
+## 已知限制
+
+- 查询仍在浏览器端通过数据源 resource proxy 执行（与 v2 架构一致），因此**不支持服务端告警（Unified Alerting）**；`QueryDataHandler` 后端化规划中；
+- CMS OpenAPI 有严格的 QPS 限制，插件保留了节流（列表查询间隔 1s），大量面板同屏刷新时响应会较慢；
+- 插件未签名，需要管理员放行 unsigned 插件。
+
+## License
+
+MIT
