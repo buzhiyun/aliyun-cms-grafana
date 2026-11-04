@@ -2,6 +2,11 @@
 
 > 目标：消除新版 Grafana 中的 "Angular plugin" 弃用告警，使插件兼容 Grafana 10.4+ / 11.x（Angular 在 Grafana 12 中被彻底移除，必须在此之前完成改造）。
 > 本机环境：Node v22.20.0、Go 1.26.3，满足新工具链要求。
+>
+> **执行状态（2026-11-04）**：阶段 0–6 已完成并提交于分支 `feat/react-migration`（commit `493f0b6`）；
+> 38 个 Jest 单测全部通过、tsc/eslint/go vet/前后端构建均通过。阶段 7 容器验证进行中。
+> 期间发现的真实语法（来自存量 dashboard）：变量查询实际使用 `namespace(ecs)`、`metric($namespace,null)`、
+> `tagFilter(ecs,cn-shanghai,value,null)`、`tag(...)`、`dimension(...)`，均已按原语义兼容。
 
 ---
 
