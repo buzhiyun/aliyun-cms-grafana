@@ -1,12 +1,18 @@
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { DataSource } from '../datasource';
 import type { CmsQuery } from '../types';
 
+/** When set, resource calls for Action=BatchExport reject (simulating an unsupported metric). */
+let failBatchExport = false;
+
 jest.mock('@grafana/runtime', () => ({
   getTemplateSrv: () => mockTemplateSrv,
   getBackendSrv: () => ({
-    fetch: (opts: { url: string }) => of({ status: 200, statusText: 'OK', ok: true, data: route(opts.url) }),
+    fetch: (opts: { url: string }) =>
+      failBatchExport && opts.url.includes('Action=BatchExport')
+        ? throwError(() => new Error('unsupported metric'))
+        : of({ status: 200, statusText: 'OK', ok: true, data: route(opts.url) }),
   }),
 }));
 
@@ -70,6 +76,11 @@ function route(url: string): any {
           Datapoints: JSON.stringify(datapoints),
           Cursor: '',
         };
+      case 'BatchExport':
+        return {
+          Datapoints: JSON.stringify(datapoints),
+          Cursor: '',
+        };
       case 'ListMyGroups':
         return {
           Code: '200',
@@ -107,6 +118,7 @@ function makeOptions(targets: CmsQuery[]) {
 describe('DataSource', () => {
   beforeEach(() => {
     backendCalls.length = 0;
+    failBatchExport = false;
   });
 
   describe('query', () => {
@@ -132,16 +144,17 @@ describe('DataSource', () => {
         ])
       );
 
-      // one request to fetch metric meta + one for the metric list
+      // one request to fetch metric meta + one BatchExport for the data
       const actions = backendCalls.map((c) => c.params.Action);
       expect(actions).toContain('QueryMetricMeta');
-      expect(actions).toContain('QueryMetricList');
+      expect(actions).toContain('BatchExport');
 
-      const listCall = backendCalls.find((c) => c.params.Action === 'QueryMetricList');
+      const listCall = backendCalls.find((c) => c.params.Action === 'BatchExport');
       expect(listCall?.params.Project).toBe('acs_ecs_dashboard');
       expect(listCall?.params.Metric).toBe('cpu_total');
       expect(listCall?.params.Period).toBe('60');
-      expect(listCall?.params.Dimensions).toBe('[{"instanceId":"i-1"}]');
+      expect(listCall?.params.Dimensions).toBe('{"instanceId":"i-1"}');
+      expect(listCall?.params.Length).toBe('10000');
       expect(listCall?.params.StartTime).toBe('1700000000000');
       expect(listCall?.params.EndTime).toBe('1700003600000');
 
@@ -172,12 +185,76 @@ describe('DataSource', () => {
         ])
       );
 
-      const listCall = backendCalls.find((c) => c.params.Action === 'QueryMetricList');
-      expect(listCall?.params.Dimensions).toBe('[{"instanceId":"i-1"}]');
+      const listCall = backendCalls.find((c) => c.params.Action === 'BatchExport');
+      expect(listCall?.params.Dimensions).toBe('{"instanceId":"i-1"}');
 
       // $dim resolves to [d1, d2] -> two value columns per group
       const names = result.data.map((f) => f.name).sort();
       expect(names).toEqual(['i-1.d1', 'i-1.d2', 'i-2.d1', 'i-2.d2']);
+    });
+
+    it('uses the smallest reported period when the target period is auto', async () => {
+      const ds = makeDataSource();
+      await ds.query(
+        makeOptions([
+          {
+            refId: 'A',
+            project: 'acs_ecs_dashboard',
+            metric: 'cpu_total',
+            period: '',
+            ycol: ['Average'],
+            dimensions: ['{"instanceId":"i-1"}'],
+          },
+        ])
+      );
+
+      const listCall = backendCalls.find((c) => c.params.Action === 'BatchExport');
+      expect(listCall?.params.Period).toBe('60'); // min of metricMeta.Periods "60,300"
+    });
+
+    it('falls back to QueryMetricList when BatchExport is not supported', async () => {
+      failBatchExport = true;
+      const ds = makeDataSource();
+      const result = await ds.query(
+        makeOptions([
+          {
+            refId: 'A',
+            project: 'acs_ecs_dashboard',
+            metric: 'cpu_total',
+            period: '60',
+            ycol: ['Average'],
+            dimensions: ['{"instanceId":"i-1"}'],
+          },
+        ])
+      );
+
+      const listCall = backendCalls.find((c) => c.params.Action === 'QueryMetricList');
+      expect(listCall?.params.Dimensions).toBe('[{"instanceId":"i-1"}]');
+      expect(listCall?.params.Length).toBe('1000');
+
+      const names = result.data.map((f) => f.name).sort();
+      expect(names).toEqual(['i-1.Average', 'i-2.Average']);
+    });
+
+    it('stops trying BatchExport after the first failure', async () => {
+      failBatchExport = true;
+      const ds = makeDataSource();
+      const target: CmsQuery = {
+        refId: 'A',
+        project: 'acs_ecs_dashboard',
+        metric: 'cpu_total',
+        period: '60',
+        ycol: ['Average'],
+        dimensions: ['{"instanceId":"i-1"}'],
+      };
+
+      await ds.query(makeOptions([target]));
+      backendCalls.length = 0;
+      await ds.query(makeOptions([target]));
+
+      // the second query goes straight to the legacy API
+      expect(backendCalls.some((c) => c.params.Action === 'BatchExport')).toBe(false);
+      expect(backendCalls.some((c) => c.params.Action === 'QueryMetricList')).toBe(true);
     });
 
     it('uses groupId + single dimension for acs_custom projects', async () => {

@@ -47,6 +47,12 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
   client: CmsClient;
   cacheMeta: Map<string, MetricMetaResource[]>;
   private listCache = new Map<string, { at: number; data: MetricFindValue[] }>();
+  /**
+   * The BatchExport API requires the paid Enterprise Cloud Monitor add-on.
+   * Once a call fails (e.g. "未开通企业云监控"), skip it for the rest of the
+   * session instead of retrying on every query.
+   */
+  private batchExportAvailable = true;
 
   constructor(instanceSettings: DataSourceInstanceSettings<CmsDataSourceOptions>) {
     super(instanceSettings);
@@ -104,9 +110,13 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
       return [];
     }
 
-    // Build the Dimensions parameter.
+    // Build the Dimensions parameter. Each element of dimensionObjects is a
+    // single monitored object, e.g. '{"instanceId":"i-1","device":"eth0"}'.
+    const isCustomOrLog =
+      project.indexOf('acs_custom') !== -1 || project.indexOf('acs_logMonitor') !== -1;
     let dimensions: string;
-    if (project.indexOf('acs_custom') !== -1 || project.indexOf('acs_logMonitor') !== -1) {
+    const dimensionObjects: string[] = [];
+    if (isCustomOrLog) {
       // Custom metrics (acs_custom) and log monitoring (acs_logMonitor) take a
       // single dimension plus the monitor group id.
       if (!target.dimensions || target.dimensions.length === 0 || util.isEmpty(group)) {
@@ -114,7 +124,6 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
       }
       dimensions = JSON.stringify({ groupId: group, dimension: target.dimensions[0] });
     } else {
-      let dims = '';
       for (const dimension of target.dimensions ?? []) {
         const values = util.exists(dimension) ? util.resolve(dimension, options.scopedVars) : [dimension];
         for (let d of values) {
@@ -124,13 +133,10 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
           if (!d.includes('}')) {
             d = d + '}';
           }
-          dims += d + ',';
+          dimensionObjects.push(d);
         }
       }
-      if (dims.length > 0) {
-        dims = dims.substring(0, dims.length - 1);
-      }
-      dimensions = '[' + dims + ']';
+      dimensions = '[' + dimensionObjects.join(',') + ']';
     }
 
     // Metric metadata tells us which dimension keys to group by.
@@ -154,7 +160,30 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
       params.Period = period;
     }
 
-    const list = await this.fetchMetricData(params, 'list');
+    // Prefer the BatchExport API (1000 QPS, 10000 datapoints per page) over
+    // DescribeMetricList (50 QPS, 1000 datapoints). It queries one monitored
+    // object at a time; metrics that do not support it fall back to the
+    // legacy path. Custom/log monitoring metrics always use the legacy path.
+    const batchPeriod = this.batchExportPeriod(period, resource[0].Periods);
+    let list: Datapoint[];
+    if (!isCustomOrLog && dimensionObjects.length > 0 && batchPeriod) {
+      const base: QueryParams = {
+        Project: project,
+        Metric: metric,
+        Period: batchPeriod,
+        Length: 10000,
+        StartTime: params.StartTime,
+        EndTime: params.EndTime,
+      };
+      const results = await Promise.all(
+        dimensionObjects.map((obj) =>
+          this.fetchObjectData({ ...base, Dimensions: obj }, '[' + obj + ']').catch(() => [] as Datapoint[])
+        )
+      );
+      list = results.flat();
+    } else {
+      list = await this.fetchMetricData(params, 'list');
+    }
     const dataMap = this.dataGroupByKeys(list, targetKeys);
 
     const describe = util.isEmpty(target.describe) ? '' : (target.describe as string) + '.';
@@ -175,6 +204,66 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
       }
     });
     return frames;
+  }
+
+  /**
+   * The period to use for the BatchExport path: the target's explicit period,
+   * or (for "auto") the smallest period the metric is reported at.
+   */
+  private batchExportPeriod(period: string, periods?: string): string | undefined {
+    if (!util.isEmpty(period) && period !== 'auto') {
+      return period;
+    }
+    if (util.isEmpty(periods)) {
+      return undefined;
+    }
+    const nums = (periods as string)
+      .split(',')
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return nums.length > 0 ? String(Math.min(...nums)) : undefined;
+  }
+
+  /**
+   * Fetches one monitored object's data via the BatchExport API (QPS limit
+   * 1000, up to 10000 datapoints per page), falling back to the legacy
+   * DescribeMetricList path when the metric does not support it.
+   * legacyDimensions is the DescribeMetricList-style parameter to use on
+   * fallback, e.g. '[{"instanceId":"i-1"}]'.
+   */
+  private async fetchObjectData(params: QueryParams, legacyDimensions: string): Promise<Datapoint[]> {
+    if (!this.batchExportAvailable) {
+      return this.fetchMetricData(
+        { ...params, Action: 'QueryMetricList', Dimensions: legacyDimensions, Length: 1000 },
+        'list'
+      );
+    }
+    try {
+      const points: Datapoint[] = [];
+      let cursor = '';
+      for (let page = 0; page <= MAX_CURSOR_PAGES; page++) {
+        const data = await this.client.cms<MetricListResponse>(
+          { ...params, Action: 'BatchExport', Cursor: cursor },
+          { showErrorAlert: false }
+        );
+        points.push(...(data.Datapoints ? (JSON.parse(data.Datapoints) as Datapoint[]) : []));
+        const next = data.Cursor || data.NextToken || '';
+        if (util.isEmpty(next)) {
+          return points;
+        }
+        cursor = next;
+      }
+      return points;
+    } catch {
+      // The metric or the account does not support BatchExport (the API is
+      // part of the paid Enterprise Cloud Monitor add-on) - use the legacy
+      // path and stop trying BatchExport in this session.
+      this.batchExportAvailable = false;
+      return this.fetchMetricData(
+        { ...params, Action: 'QueryMetricList', Dimensions: legacyDimensions, Length: 1000 },
+        'list'
+      );
+    }
   }
 
   /** Fetches a metric (list or last) following the legacy Cursor pagination. */

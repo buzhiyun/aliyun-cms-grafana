@@ -211,6 +211,10 @@ func newDescribeMetricRequest(params map[string]string) *cms.DescribeMetricListR
 	} else {
 		request.EndTime = tea.String("60")
 	}
+	// The frontend passes the pagination token back as the Cursor parameter.
+	if cursor, ok := params["Cursor"]; ok && cursor != "" {
+		request.NextToken = tea.String(cursor)
+	}
 	return request
 }
 
@@ -492,6 +496,8 @@ func (d *Datasource) ProxyCmsPopApi(rw http.ResponseWriter, req *http.Request) {
 		proxyQueryMetricLast(req.Context(), d.settings, params, rw)
 	case "QueryMetricList":
 		proxyQueryMetricData(req.Context(), d.settings, params, rw)
+	case "BatchExport":
+		proxyBatchExport(req.Context(), d.settings, params, rw)
 	case "QueryMetricMeta":
 		proxyListMetricMeta(req.Context(), d.settings, params, rw)
 	case "QueryProjectMeta":

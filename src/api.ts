@@ -99,7 +99,11 @@ export interface ListTagResourcesResponse {
 export class CmsClient {
   constructor(private readonly datasourceUid?: string) {}
 
-  private async fetch<T>(proxy: ProxyKind, params: QueryParams): Promise<T> {
+  private async fetch<T>(
+    proxy: ProxyKind,
+    params: QueryParams,
+    opts?: { showErrorAlert?: boolean }
+  ): Promise<T> {
     const search = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== '') {
@@ -107,13 +111,13 @@ export class CmsClient {
       }
     }
     const url = `/api/datasources/uid/${this.datasourceUid}/resources/${proxy}?${search.toString()}`;
-    const res = await lastValueFrom(getBackendSrv().fetch<T>({ url }));
+    const res = await lastValueFrom(getBackendSrv().fetch<T>({ url, ...opts }));
     return res.data;
   }
 
   /** Cloud Monitor (CMS) OpenAPI calls. */
-  cms<T>(params: QueryParams): Promise<T> {
-    return this.fetch<T>('proxy_aliyun_cms_pop', params);
+  cms<T>(params: QueryParams, opts?: { showErrorToasts?: boolean }): Promise<T> {
+    return this.fetch<T>('proxy_aliyun_cms_pop', params, opts);
   }
 
   /** ECS OpenAPI calls. */

@@ -87,7 +87,8 @@ GRAFANA_VERSION=11.6.0 npm run server   # 指定 Grafana 版本
 ## 已知限制
 
 - 查询仍在浏览器端通过数据源 resource proxy 执行（与 v2 架构一致），因此**不支持服务端告警（Unified Alerting）**；`QueryDataHandler` 后端化规划中；
-- CMS OpenAPI 有严格的 QPS 限制，插件保留了节流（列表查询间隔 1s），大量面板同屏刷新时响应会较慢；
+- CMS OpenAPI 有严格的 QPS 限制（查询类接口 50 QPS/账号，与 RAM 用户共享），插件保留了节流并在后端对限流错误自动重试，大量面板同屏刷新时响应仍可能变慢；
+- 数据查询优先使用 **BatchExport** 接口（QPS 1000、每页 10000 点，可显著减少调用次数与翻页耗时）。该接口属于**付费的企业云监控**能力：未开通的账号会自动回退到 DescribeMetricList 并在本次会话内不再尝试，功能不受影响；
 - 插件未签名，需要管理员放行 unsigned 插件。
 
 ## License
