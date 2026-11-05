@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.0.1 (2026-11-05)
+
+### Fixed
+
+- Query editor dropdowns (Namespace/Metric/Period/Group/Dimensions/Y-column)
+  now filter options as you type. react-select's async mode has client-side
+  filtering disabled by default, so typeahead filtering is applied inside
+  `loadOptions`.
+- List queries backing the editor dropdowns (`QueryProjectMeta`,
+  `QueryMetricMeta`, `ListMyGroups`, `QueryMetricLast` for dimensions) are
+  cached for 30 seconds - the typeahead re-requests the list on every
+  keystroke, which would otherwise hit the strict CMS OpenAPI QPS limits.
+- `docker compose up` (test mode): the livereload script is now only injected
+  into Grafana's index.html in development mode. Previously the page hung
+  waiting for `http://localhost:35729/livereload.js` when `npm run dev` was
+  not running.
+- Development mode (`DEVELOPMENT=true`): supervisord configs referenced the
+  create-plugin template's placeholder names, so Grafana never started.
+
 ## 3.0.0 (2026-11-04)
 
 Complete rewrite of the frontend on the modern Grafana plugin platform. The

@@ -9,8 +9,17 @@ import * as util from '../util';
 
 type Props = QueryEditorProps<DataSource, CmsQuery, CmsDataSourceOptions>;
 
-const toOptions = (items: MetricFindValue[]): Array<SelectableValue<string>> =>
-  items.filter((i) => !!i.text).map((i) => ({ label: i.text, value: String(i.value ?? i.text) }));
+/**
+ * Converts metric find values to select options, filtered by the select's
+ * current input (react-select's async mode has client-side filtering disabled
+ * by default, so the filtering has to happen inside loadOptions).
+ */
+const toOptions = (items: MetricFindValue[], input = ''): Array<SelectableValue<string>> => {
+  const filter = input.trim().toLowerCase();
+  return items
+    .filter((i) => !!i.text && (filter === '' || i.text.toLowerCase().includes(filter)))
+    .map((i) => ({ label: i.text, value: String(i.value ?? i.text) }));
+};
 
 export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) {
   const q: CmsQuery = {
@@ -69,7 +78,7 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
           <AsyncSelect
             key={`ns-${project}`}
             value={q.project ? { label: q.project, value: q.project } : null}
-            loadOptions={() => datasource.getProject().then(toOptions)}
+            loadOptions={(input) => datasource.getProject().then((items) => toOptions(items, input))}
             defaultOptions
             allowCustomValue
             onChange={onSelect('project')}
@@ -79,7 +88,9 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
           <AsyncSelect
             key={`m-${project}`}
             value={q.metric ? { label: q.metric, value: q.metric } : null}
-            loadOptions={async () => (util.isEmpty(project) ? [] : toOptions(await datasource.getMetrics(project)))}
+            loadOptions={async (input) =>
+              util.isEmpty(project) ? [] : toOptions(await datasource.getMetrics(project), input)
+            }
             defaultOptions
             allowCustomValue
             onChange={onSelect('metric')}
@@ -97,7 +108,9 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
           <AsyncSelect
             key={`p-${project}-${metric}`}
             value={q.period ? { label: q.period, value: q.period } : null}
-            loadOptions={async () => (hasProjectMetric ? toOptions(await datasource.getPeriod(project, metric)) : [])}
+            loadOptions={async (input) =>
+              hasProjectMetric ? toOptions(await datasource.getPeriod(project, metric), input) : []
+            }
             defaultOptions
             allowCustomValue
             onChange={onSelect('period')}
@@ -106,7 +119,7 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
         <InlineField label="Group" labelWidth={12} tooltip="云监控应用分组(自定义监控/日志监控使用)." grow>
           <AsyncSelect
             value={q.group ? { label: q.group, value: q.group } : null}
-            loadOptions={() => datasource.getGroups().then(toOptions)}
+            loadOptions={(input) => datasource.getGroups().then((items) => toOptions(items, input))}
             defaultOptions
             allowCustomValue
             onChange={onSelect('group')}
@@ -124,9 +137,12 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
           <AsyncMultiSelect
             key={`d-${project}-${metric}`}
             value={(q.dimensions ?? []).map((d) => ({ label: d, value: d }))}
-            loadOptions={async () =>
+            loadOptions={async (input) =>
               hasProjectMetric
-                ? toOptions(await datasource.getDimensions(project, metric, q.period ?? '', q.dimensions ?? []))
+                ? toOptions(
+                    await datasource.getDimensions(project, metric, q.period ?? '', q.dimensions ?? []),
+                    input
+                  )
                 : []
             }
             defaultOptions
@@ -142,8 +158,8 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
           <AsyncMultiSelect
             key={`y-${project}-${metric}`}
             value={(q.ycol ?? []).map((y) => ({ label: y, value: y }))}
-            loadOptions={async () =>
-              hasProjectMetric ? toOptions(await datasource.getStatistics(project, metric)) : []
+            loadOptions={async (input) =>
+              hasProjectMetric ? toOptions(await datasource.getStatistics(project, metric), input) : []
             }
             defaultOptions
             allowCustomValue

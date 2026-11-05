@@ -34,12 +34,19 @@ const LIST_THROTTLE_MS = 1000;
 const LAST_THROTTLE_MS = 100;
 const META_THROTTLE_MS = 500;
 const MAX_CURSOR_PAGES = 20;
+/**
+ * Dropdown lists are re-requested by the query editor on every keystroke
+ * (typeahead filtering happens client-side inside loadOptions), so the raw
+ * lists are cached for a short while to avoid hammering the QPS-limited API.
+ */
+const LIST_CACHE_TTL_MS = 30_000;
 
 export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
   datasourceUid?: string;
   aliyunUserId?: string;
   client: CmsClient;
   cacheMeta: Map<string, MetricMetaResource[]>;
+  private listCache = new Map<string, { at: number; data: MetricFindValue[] }>();
 
   constructor(instanceSettings: DataSourceInstanceSettings<CmsDataSourceOptions>) {
     super(instanceSettings);
@@ -47,6 +54,17 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
     this.aliyunUserId = instanceSettings.jsonData.userId;
     this.client = new CmsClient(instanceSettings.uid);
     this.cacheMeta = new Map<string, MetricMetaResource[]>();
+  }
+
+  /** Short-TTL cache for list queries backing editor dropdowns / variable queries. */
+  private async cachedList(key: string, loader: () => Promise<MetricFindValue[]>): Promise<MetricFindValue[]> {
+    const hit = this.listCache.get(key);
+    if (hit && Date.now() - hit.at < LIST_CACHE_TTL_MS) {
+      return hit.data;
+    }
+    const data = await loader();
+    this.listCache.set(key, { at: Date.now(), data });
+    return data;
   }
 
   /**
@@ -388,52 +406,56 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
 
   /** All projects/namespaces, including the custom/log monitoring namespaces of the configured user. */
   async getProject(): Promise<MetricFindValue[]> {
-    try {
-      const data = await this.client.cms<ProjectMetaResponse>({
-        Action: 'QueryProjectMeta',
-        PageNumber: 1,
-        PageSize: 1000,
-      });
-      const result: string[] = [];
-      if (isOk(data)) {
-        for (const resource of data.Resources?.Resource ?? []) {
-          if (!util.isEmpty(resource.Namespace)) {
-            result.push(resource.Namespace as string);
+    return this.cachedList('projects', async () => {
+      try {
+        const data = await this.client.cms<ProjectMetaResponse>({
+          Action: 'QueryProjectMeta',
+          PageNumber: 1,
+          PageSize: 1000,
+        });
+        const result: string[] = [];
+        if (isOk(data)) {
+          for (const resource of data.Resources?.Resource ?? []) {
+            if (!util.isEmpty(resource.Namespace)) {
+              result.push(resource.Namespace as string);
+            }
           }
         }
+        if (!util.isEmpty(this.aliyunUserId)) {
+          result.push('acs_logMonitor_' + this.aliyunUserId);
+          result.push('acs_customMetric_' + this.aliyunUserId);
+        }
+        return util.arrayToMap(result);
+      } catch {
+        return [];
       }
-      if (!util.isEmpty(this.aliyunUserId)) {
-        result.push('acs_logMonitor_' + this.aliyunUserId);
-        result.push('acs_customMetric_' + this.aliyunUserId);
-      }
-      return util.arrayToMap(result);
-    } catch {
-      return [];
-    }
+    });
   }
 
   /** All metrics of a project/namespace. */
   async getMetrics(project: string): Promise<MetricFindValue[]> {
-    try {
-      const data = await this.client.cms<MetricMetaResponse>({
-        Action: 'QueryMetricMeta',
-        PageNumber: 1,
-        PageSize: 1000,
-        Project: project,
-      });
-      if (!isOk(data)) {
+    return this.cachedList(`metrics:${project}`, async () => {
+      try {
+        const data = await this.client.cms<MetricMetaResponse>({
+          Action: 'QueryMetricMeta',
+          PageNumber: 1,
+          PageSize: 1000,
+          Project: project,
+        });
+        if (!isOk(data)) {
+          return [];
+        }
+        const result: string[] = [];
+        for (const resource of data.Resources?.Resource ?? []) {
+          if (!util.isEmpty(resource.MetricName)) {
+            result.push(resource.MetricName as string);
+          }
+        }
+        return util.arrayToMap(result);
+      } catch {
         return [];
       }
-      const result: string[] = [];
-      for (const resource of data.Resources?.Resource ?? []) {
-        if (!util.isEmpty(resource.MetricName)) {
-          result.push(resource.MetricName as string);
-        }
-      }
-      return util.arrayToMap(result);
-    } catch {
-      return [];
-    }
+    });
   }
 
   /** Supported aggregation periods of a metric, with "auto" prepended. */
@@ -456,29 +478,31 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
 
   /** Monitor groups (for custom metrics / log monitoring). */
   async getGroups(): Promise<MetricFindValue[]> {
-    try {
-      const data = await this.client.cms<MonitorGroupsResponse>({
-        Action: 'ListMyGroups',
-        PageNumber: 1,
-        PageSize: 9000,
-      });
-      if (!isOk(data)) {
+    return this.cachedList('groups', async () => {
+      try {
+        const data = await this.client.cms<MonitorGroupsResponse>({
+          Action: 'ListMyGroups',
+          PageNumber: 1,
+          PageSize: 9000,
+        });
+        if (!isOk(data)) {
+          return [];
+        }
+        const result: MetricFindValue[] = [];
+        for (const group of data.Resources?.Resource ?? []) {
+          if (util.isEmpty(group.GroupId) || util.isEmpty(group.GroupName)) {
+            continue;
+          }
+          result.push({
+            text: `${group.GroupName} / ${group.GroupId}`,
+            value: String(group.GroupId),
+          });
+        }
+        return result;
+      } catch {
         return [];
       }
-      const result: MetricFindValue[] = [];
-      for (const group of data.Resources?.Resource ?? []) {
-        if (util.isEmpty(group.GroupId) || util.isEmpty(group.GroupName)) {
-          continue;
-        }
-        result.push({
-          text: `${group.GroupName} / ${group.GroupId}`,
-          value: String(group.GroupId),
-        });
-      }
-      return result;
-    } catch {
-      return [];
-    }
+    });
   }
 
   /**
@@ -494,28 +518,30 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
     if (project.indexOf('acs_customMetric') !== -1 || project.indexOf('acs_logMonitor') !== -1) {
       return [];
     }
-    const endTime = Date.now();
-    const startTime = endTime - 15 * 60 * 1000;
-    const params: QueryParams = {
-      Action: 'QueryMetricLast',
-      Project: project,
-      Metric: metric,
-      StartTime: startTime,
-      EndTime: endTime,
-    };
-    if (!util.isEmpty(period)) {
-      params.Period = period;
-    }
+    return this.cachedList(`dimensions:${project}:${metric}:${period}:${JSON.stringify(dimensions)}`, async () => {
+      const endTime = Date.now();
+      const startTime = endTime - 15 * 60 * 1000;
+      const params: QueryParams = {
+        Action: 'QueryMetricLast',
+        Project: project,
+        Metric: metric,
+        StartTime: startTime,
+        EndTime: endTime,
+      };
+      if (!util.isEmpty(period)) {
+        params.Period = period;
+      }
 
-    const data = await this.fetchMetricData(params, 'last');
-    if (data.length === 0) {
-      return [];
-    }
-    const meta = await this.queryMetricMeta(project, metric);
-    if (util.isEmpty(meta) || util.isEmpty(meta[0].Dimensions)) {
-      return [];
-    }
-    return this.dimensionData(data, meta, dimensions);
+      const data = await this.fetchMetricData(params, 'last');
+      if (data.length === 0) {
+        return [];
+      }
+      const meta = await this.queryMetricMeta(project, metric);
+      if (util.isEmpty(meta) || util.isEmpty(meta[0].Dimensions)) {
+        return [];
+      }
+      return this.dimensionData(data, meta, dimensions);
+    });
   }
 
   /** Builds distinct dimension option strings from datapoints. */

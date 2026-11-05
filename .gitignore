@@ -46,3 +46,4 @@ ci/
 .idea
 
 .eslintcache
+aliyun_cms_grafana_datasource_*.tar.gz

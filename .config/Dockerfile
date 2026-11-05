@@ -68,8 +68,11 @@ RUN if [ "${development}" = "true" ]; then \
     go run bootstrap.go; \
     fi
 
-# Inject livereload script into grafana index.html
-RUN sed -i 's|</body>|<script src="http://localhost:35729/livereload.js"></script></body>|g' /usr/share/grafana/public/views/index.html
+# Inject livereload script into grafana index.html (development mode only -
+# the script is served by `npm run dev` on the host; without it the page hangs)
+RUN if [ "${development}" = "true" ]; then \
+    sed -i 's|</body>|<script src="http://localhost:35729/livereload.js"></script></body>|g' /usr/share/grafana/public/views/index.html; \
+    fi
 
 
 COPY entrypoint.sh /entrypoint.sh
