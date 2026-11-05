@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -107,7 +108,7 @@ func parseIntParam(params map[string]string, key string, def int32) int32 {
 // ---------------------------------------------------------------------------
 // Cloud Monitor (CMS) proxies
 
-func proxyListMetricMeta(s *models.PluginSettings, params map[string]string, rw http.ResponseWriter) {
+func proxyListMetricMeta(ctx context.Context, s *models.PluginSettings, params map[string]string, rw http.ResponseWriter) {
 	client, err := createCmsClient(s)
 	if err != nil {
 		writeProxyResponse(rw, nil, err)
@@ -125,11 +126,17 @@ func proxyListMetricMeta(s *models.PluginSettings, params map[string]string, rw 
 		request.MetricName = tea.String(metric)
 	}
 
-	response, err := client.DescribeMetricMetaList(request)
-	writeProxyResponse(rw, response.Body, err)
+	body, err := callCMS(ctx, func() (*cms.DescribeMetricMetaListResponseBody, error) {
+		response, err := client.DescribeMetricMetaList(request)
+		if err != nil {
+			return nil, err
+		}
+		return response.Body, nil
+	})
+	writeProxyResponse(rw, body, err)
 }
 
-func proxyListProjectMeta(s *models.PluginSettings, params map[string]string, rw http.ResponseWriter) {
+func proxyListProjectMeta(ctx context.Context, s *models.PluginSettings, params map[string]string, rw http.ResponseWriter) {
 	client, err := createCmsClient(s)
 	if err != nil {
 		writeProxyResponse(rw, nil, err)
@@ -141,11 +148,17 @@ func proxyListProjectMeta(s *models.PluginSettings, params map[string]string, rw
 		PageSize:   tea.Int32(parseIntParam(params, "PageSize", 1000)),
 	}
 
-	response, err := client.DescribeProjectMeta(request)
-	writeProxyResponse(rw, response.Body, err)
+	body, err := callCMS(ctx, func() (*cms.DescribeProjectMetaResponseBody, error) {
+		response, err := client.DescribeProjectMeta(request)
+		if err != nil {
+			return nil, err
+		}
+		return response.Body, nil
+	})
+	writeProxyResponse(rw, body, err)
 }
 
-func proxyListMyGroups(s *models.PluginSettings, params map[string]string, rw http.ResponseWriter) {
+func proxyListMyGroups(ctx context.Context, s *models.PluginSettings, params map[string]string, rw http.ResponseWriter) {
 	client, err := createCmsClient(s)
 	if err != nil {
 		writeProxyResponse(rw, nil, err)
@@ -157,8 +170,14 @@ func proxyListMyGroups(s *models.PluginSettings, params map[string]string, rw ht
 		PageSize:   tea.Int32(parseIntParam(params, "PageSize", 1000)),
 	}
 
-	response, err := client.DescribeMonitorGroups(request)
-	writeProxyResponse(rw, response.Body, err)
+	body, err := callCMS(ctx, func() (*cms.DescribeMonitorGroupsResponseBody, error) {
+		response, err := client.DescribeMonitorGroups(request)
+		if err != nil {
+			return nil, err
+		}
+		return response.Body, nil
+	})
+	writeProxyResponse(rw, body, err)
 }
 
 func newDescribeMetricRequest(params map[string]string) *cms.DescribeMetricListRequest {
@@ -195,15 +214,22 @@ func newDescribeMetricRequest(params map[string]string) *cms.DescribeMetricListR
 	return request
 }
 
-func proxyQueryMetricData(s *models.PluginSettings, params map[string]string, rw http.ResponseWriter) {
+func proxyQueryMetricData(ctx context.Context, s *models.PluginSettings, params map[string]string, rw http.ResponseWriter) {
 	client, err := createCmsClient(s)
 	if err != nil {
 		writeProxyResponse(rw, nil, err)
 		return
 	}
 
-	response, err := client.DescribeMetricList(newDescribeMetricRequest(params))
-	writeProxyResponse(rw, response.Body, err)
+	request := newDescribeMetricRequest(params)
+	body, err := callCMS(ctx, func() (*cms.DescribeMetricListResponseBody, error) {
+		response, err := client.DescribeMetricList(request)
+		if err != nil {
+			return nil, err
+		}
+		return response.Body, nil
+	})
+	writeProxyResponse(rw, body, err)
 }
 
 func newDescribeMetricLastRequest(params map[string]string) *cms.DescribeMetricLastRequest {
@@ -240,15 +266,22 @@ func newDescribeMetricLastRequest(params map[string]string) *cms.DescribeMetricL
 	return request
 }
 
-func proxyQueryMetricLast(s *models.PluginSettings, params map[string]string, rw http.ResponseWriter) {
+func proxyQueryMetricLast(ctx context.Context, s *models.PluginSettings, params map[string]string, rw http.ResponseWriter) {
 	client, err := createCmsClient(s)
 	if err != nil {
 		writeProxyResponse(rw, nil, err)
 		return
 	}
 
-	response, err := client.DescribeMetricLast(newDescribeMetricLastRequest(params))
-	writeProxyResponse(rw, response.Body, err)
+	request := newDescribeMetricLastRequest(params)
+	body, err := callCMS(ctx, func() (*cms.DescribeMetricLastResponseBody, error) {
+		response, err := client.DescribeMetricLast(request)
+		if err != nil {
+			return nil, err
+		}
+		return response.Body, nil
+	})
+	writeProxyResponse(rw, body, err)
 }
 
 // ---------------------------------------------------------------------------
@@ -456,15 +489,15 @@ func (d *Datasource) ProxyCmsPopApi(rw http.ResponseWriter, req *http.Request) {
 
 	switch params["Action"] {
 	case "QueryMetricLast":
-		proxyQueryMetricLast(d.settings, params, rw)
+		proxyQueryMetricLast(req.Context(), d.settings, params, rw)
 	case "QueryMetricList":
-		proxyQueryMetricData(d.settings, params, rw)
+		proxyQueryMetricData(req.Context(), d.settings, params, rw)
 	case "QueryMetricMeta":
-		proxyListMetricMeta(d.settings, params, rw)
+		proxyListMetricMeta(req.Context(), d.settings, params, rw)
 	case "QueryProjectMeta":
-		proxyListProjectMeta(d.settings, params, rw)
+		proxyListProjectMeta(req.Context(), d.settings, params, rw)
 	case "ListMyGroups":
-		proxyListMyGroups(d.settings, params, rw)
+		proxyListMyGroups(req.Context(), d.settings, params, rw)
 	default:
 		handleResponse(rw, nil, errors.New("unsupported Action: "+params["Action"]))
 	}

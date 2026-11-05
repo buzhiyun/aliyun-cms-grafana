@@ -9,6 +9,7 @@ require (
 	github.com/alibabacloud-go/rds-20140815/v12 v12.3.2
 	github.com/alibabacloud-go/tea v1.5.4
 	github.com/grafana/grafana-plugin-sdk-go v0.298.0
+	golang.org/x/time v0.16.0
 )
 
 require (

@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.2 (2026-11-05)
+
+### Fixed
+
+- Aliyun CMS flow control (`Throttling.User`) no longer surfaces as panel
+  errors. The Go backend now:
+  - rate-limits all CMS API calls through a shared token bucket
+    (25 QPS + burst 10, against the 50 QPS per-account limit shared by the
+    account and its RAM users), smoothing bursts from concurrent panels;
+  - retries throttled calls with exponential backoff + jitter (400ms/1.2s/3.6s,
+    up to 3 attempts) - Aliyun signals throttling via HTTP 400 with code
+    `Throttling.*` instead of 429/`Retry-After`, so errors are matched by code;
+  - cancels the limiter wait when the originating browser request goes away.
+- Retries and limiter waits are logged (`CMS request throttled by Aliyun,
+  retrying`) so residual throttling remains observable.
+
 ## 3.0.1 (2026-11-05)
 
 ### Fixed
