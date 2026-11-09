@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.0.3 (2026-11-09)
+
+### Fixed
+
+- The Dimensions dropdown no longer comes up empty for sparsely reported
+  metrics (e.g. MNS queue metrics such as `acs_mns_new/ActiveMessages`, which
+  only report a few times per day). Dimensions are primarily enumerated from
+  `DescribeMetricLast` over the last 15 minutes (unchanged); when that yields
+  nothing, the plugin now falls back to `DescribeMetricList` over a 72h window
+  (single page, `Length=1000`, period = largest supported period from the
+  metric meta). The `dimension(...)` template variable query benefits too.
+
+### Added
+
+- The Aliyun OpenAPI endpoints are now configurable per datasource
+  (jsonData `cmsEndpoint` / `ecsEndpoint` / `rdsEndpoint`, or the "API
+  endpoints (advanced)" section in the datasource config editor). Previously
+  they were hardcoded to `metrics.cn-hangzhou.aliyuncs.com` /
+  `ecs-cn-hangzhou.aliyuncs.com` / `rds.aliyuncs.com`; those remain the
+  defaults when left empty, so existing configurations are unaffected.
+
 ## 3.0.2 (2026-11-05)
 
 ### Fixed
