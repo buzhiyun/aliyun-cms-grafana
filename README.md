@@ -68,6 +68,14 @@ GRAFANA_VERSION=11.6.0 npm run server   # 指定 Grafana 版本
    - **AccessKeyId / AccessKeySecret**：保存在 secureJsonData 中，仅在保存时传输；
 3. Save & Test（后端会真实调用云监控 API 校验 AK 有效性）。
 
+可选：展开 **API endpoints (advanced)** 可覆盖后端调用的 OpenAPI 接入点（jsonData 中的 `cmsEndpoint` / `ecsEndpoint` / `rdsEndpoint`，也可在 provisioning 中配置）。留空使用内置默认值：
+
+| 字段 | 默认值 | 说明 |
+|---|---|---|
+| `cmsEndpoint` | `metrics.cn-hangzhou.aliyuncs.com` | 云监控为全局服务，一般无需修改 |
+| `ecsEndpoint` | `ecs-cn-hangzhou.aliyuncs.com` | ECS 标签查询接入点 |
+| `rdsEndpoint` | `rds.aliyuncs.com` | RDS 标签查询接入点 |
+
 ## 查询
 
 查询编辑器支持：Namespace（项目）、Metric（监控项）、Period（聚合周期）、Group（应用分组）、Dimensions（维度，多选）、Y-column（统计值，多选）、X-column（时间轴字段，默认 `timestamp`）、Describe（序列名前缀）。

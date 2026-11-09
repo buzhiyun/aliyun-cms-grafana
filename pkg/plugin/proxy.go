@@ -20,11 +20,28 @@ import (
 // ---------------------------------------------------------------------------
 // clients
 
+// Default OpenAPI endpoints, kept from the legacy plugin. CMS is a global
+// service with a single endpoint; ECS/RDS endpoints are regional but the
+// central ones accept cross-region requests for the tag queries this plugin
+// makes. All three can be overridden per datasource in the plugin settings.
+const (
+	defaultCmsEndpoint = "metrics.cn-hangzhou.aliyuncs.com"
+	defaultEcsEndpoint = "ecs-cn-hangzhou.aliyuncs.com"
+	defaultRdsEndpoint = "rds.aliyuncs.com"
+)
+
+func endpointOr(configured, def string) string {
+	if configured == "" {
+		return def
+	}
+	return configured
+}
+
 func createCmsClient(s *models.PluginSettings) (*cms.Client, error) {
 	config := &openapi.Config{
 		AccessKeyId:     tea.String(s.AccessKeyId),
 		AccessKeySecret: tea.String(s.AccessKeySecret),
-		Endpoint:        tea.String("metrics.cn-hangzhou.aliyuncs.com"),
+		Endpoint:        tea.String(endpointOr(s.CmsEndpoint, defaultCmsEndpoint)),
 		Protocol:        tea.String("https"),
 	}
 	return cms.NewClient(config)
@@ -34,7 +51,7 @@ func createEcsClient(s *models.PluginSettings) (*ecs.Client, error) {
 	config := &openapi.Config{
 		AccessKeyId:     tea.String(s.AccessKeyId),
 		AccessKeySecret: tea.String(s.AccessKeySecret),
-		Endpoint:        tea.String("ecs-cn-hangzhou.aliyuncs.com"),
+		Endpoint:        tea.String(endpointOr(s.EcsEndpoint, defaultEcsEndpoint)),
 		Protocol:        tea.String("https"),
 	}
 	return ecs.NewClient(config)
@@ -44,7 +61,7 @@ func createRdsClient(s *models.PluginSettings) (*rds.Client, error) {
 	config := &openapi.Config{
 		AccessKeyId:     tea.String(s.AccessKeyId),
 		AccessKeySecret: tea.String(s.AccessKeySecret),
-		Endpoint:        tea.String("rds.aliyuncs.com"),
+		Endpoint:        tea.String(endpointOr(s.RdsEndpoint, defaultRdsEndpoint)),
 		Protocol:        tea.String("https"),
 	}
 	return rds.NewClient(config)

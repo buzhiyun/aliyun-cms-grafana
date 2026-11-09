@@ -26,6 +26,10 @@ export interface CmsQuery extends DataQuery {
 export interface CmsDataSourceOptions extends DataSourceJsonData {
   /** Aliyun user id (numeric string), used to build acs_custom/acs_logMonitor namespaces */
   userId?: string;
+  /** Optional OpenAPI endpoints; empty = built-in default (metrics.cn-hangzhou.aliyuncs.com etc.) */
+  cmsEndpoint?: string;
+  ecsEndpoint?: string;
+  rdsEndpoint?: string;
 }
 
 export interface CmsSecureJsonData {
