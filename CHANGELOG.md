@@ -1,5 +1,54 @@
 # Changelog
 
+## 3.0.4 (2026-11-13)
+
+### Fixed
+
+- Query editor width no longer blows out when many dimensions are selected.
+  The editor fields previously never shrank (`flex: 1 0 auto`), so the
+  unwrapped width of all selected multi-value chips stretched the whole row
+  and squeezed neighboring fields. Fields now cap at the available row width
+  and selected values wrap onto multiple grid-like rows inside the
+  Dimensions / Y-column selects; individual chips ellipsize when a dimension
+  string is longer than the control.
+
+## 3.0.3 (2026-11-09)
+
+### Fixed
+
+- The Dimensions dropdown no longer comes up empty for sparsely reported
+  metrics (e.g. MNS queue metrics such as `acs_mns_new/ActiveMessages`, which
+  only report a few times per day). Dimensions are primarily enumerated from
+  `DescribeMetricLast` over the last 15 minutes (unchanged); when that yields
+  nothing, the plugin now falls back to `DescribeMetricList` over a 72h window
+  (single page, `Length=1000`, period = largest supported period from the
+  metric meta). The `dimension(...)` template variable query benefits too.
+
+### Added
+
+- The Aliyun OpenAPI endpoints are now configurable per datasource
+  (jsonData `cmsEndpoint` / `ecsEndpoint` / `rdsEndpoint`, or the "API
+  endpoints (advanced)" section in the datasource config editor). Previously
+  they were hardcoded to `metrics.cn-hangzhou.aliyuncs.com` /
+  `ecs-cn-hangzhou.aliyuncs.com` / `rds.aliyuncs.com`; those remain the
+  defaults when left empty, so existing configurations are unaffected.
+
+## 3.0.2 (2026-11-05)
+
+### Fixed
+
+- Aliyun CMS flow control (`Throttling.User`) no longer surfaces as panel
+  errors. The Go backend now:
+  - rate-limits all CMS API calls through a shared token bucket
+    (25 QPS + burst 10, against the 50 QPS per-account limit shared by the
+    account and its RAM users), smoothing bursts from concurrent panels;
+  - retries throttled calls with exponential backoff + jitter (400ms/1.2s/3.6s,
+    up to 3 attempts) - Aliyun signals throttling via HTTP 400 with code
+    `Throttling.*` instead of 429/`Retry-After`, so errors are matched by code;
+  - cancels the limiter wait when the originating browser request goes away.
+- Retries and limiter waits are logged (`CMS request throttled by Aliyun,
+  retrying`) so residual throttling remains observable.
+
 ## 3.0.1 (2026-11-05)
 
 ### Fixed

@@ -12,6 +12,10 @@ datasources:
     editable: true
     jsonData:
       userId: '1234567890' # Aliyun account id (numeric string)
+      # Optional OpenAPI endpoints - leave unset to use the built-in defaults:
+      #   cmsEndpoint: 'metrics.cn-hangzhou.aliyuncs.com'
+      #   ecsEndpoint: 'ecs-cn-hangzhou.aliyuncs.com'
+      #   rdsEndpoint: 'rds.aliyuncs.com'
     secureJsonData:
       cmsAccessKey: '<your-access-key-id>'
       cmsSecretKey: '<your-access-key-secret>'

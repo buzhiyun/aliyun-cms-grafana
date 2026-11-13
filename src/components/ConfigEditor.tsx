@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { DataSourcePluginOptionsEditorProps } from '@grafana/data';
-import { Field, FieldSet, Input, SecretInput } from '@grafana/ui';
+import { CollapsableSection, Field, FieldSet, Input, SecretInput } from '@grafana/ui';
 
 import type { CmsDataSourceOptions, CmsSecureJsonData } from '../types';
 
@@ -16,6 +16,14 @@ export function ConfigEditor(props: Props) {
     onOptionsChange({
       ...options,
       jsonData: { ...jsonData, userId: event.currentTarget.value },
+    });
+  };
+
+  // JSON data: optional OpenAPI endpoints
+  const onEndpointChange = (key: keyof CmsDataSourceOptions) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    onOptionsChange({
+      ...options,
+      jsonData: { ...jsonData, [key]: event.currentTarget.value },
     });
   };
 
@@ -65,6 +73,42 @@ export function ConfigEditor(props: Props) {
           width={40}
         />
       </Field>
+
+      <CollapsableSection label="API endpoints (advanced)" isOpen={false}>
+        <Field
+          label="Cloud Monitor (CMS) endpoint"
+          description="云监控 OpenAPI 接入点。CMS 是全局服务，一般无需修改；留空使用默认 metrics.cn-hangzhou.aliyuncs.com"
+        >
+          <Input
+            value={jsonData.cmsEndpoint ?? ''}
+            onChange={onEndpointChange('cmsEndpoint')}
+            placeholder="metrics.cn-hangzhou.aliyuncs.com"
+            width={40}
+          />
+        </Field>
+        <Field
+          label="ECS endpoint"
+          description="ECS OpenAPI 接入点（标签查询用）。留空使用默认 ecs-cn-hangzhou.aliyuncs.com"
+        >
+          <Input
+            value={jsonData.ecsEndpoint ?? ''}
+            onChange={onEndpointChange('ecsEndpoint')}
+            placeholder="ecs-cn-hangzhou.aliyuncs.com"
+            width={40}
+          />
+        </Field>
+        <Field
+          label="RDS endpoint"
+          description="RDS OpenAPI 接入点（标签查询用）。留空使用默认 rds.aliyuncs.com"
+        >
+          <Input
+            value={jsonData.rdsEndpoint ?? ''}
+            onChange={onEndpointChange('rdsEndpoint')}
+            placeholder="rds.aliyuncs.com"
+            width={40}
+          />
+        </Field>
+      </CollapsableSection>
     </FieldSet>
   );
 }

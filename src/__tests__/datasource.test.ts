@@ -47,6 +47,12 @@ const datapoints = [
 /** Record of every backend call, filled by route(). */
 const backendCalls: Array<{ proxy: string; params: Record<string, string> }> = [];
 
+/**
+ * Mutable fixtures: datapoints returned by QueryMetricLast / QueryMetricList.
+ * Last defaults to empty (sparse metric), List defaults to the fixture data.
+ */
+const state = { lastDatapoints: '[]', listDatapoints: JSON.stringify(datapoints) };
+
 function route(url: string): any {
   const u = new URL(url, 'http://grafana.local');
   const proxy = u.pathname.split('/').pop() as string;
@@ -67,7 +73,14 @@ function route(url: string): any {
         return {
           Code: '200',
           Success: true,
-          Datapoints: JSON.stringify(datapoints),
+          Datapoints: state.listDatapoints,
+          Cursor: '',
+        };
+      case 'QueryMetricLast':
+        return {
+          Code: '200',
+          Success: true,
+          Datapoints: state.lastDatapoints,
           Cursor: '',
         };
       case 'ListMyGroups':
@@ -107,6 +120,8 @@ function makeOptions(targets: CmsQuery[]) {
 describe('DataSource', () => {
   beforeEach(() => {
     backendCalls.length = 0;
+    state.lastDatapoints = '[]';
+    state.listDatapoints = JSON.stringify(datapoints);
   });
 
   describe('query', () => {
@@ -269,6 +284,52 @@ describe('DataSource', () => {
       expect(values).toContain('acs_ecs_dashboard');
       expect(values).toContain('acs_logMonitor_12345');
       expect(values).toContain('acs_customMetric_12345');
+    });
+  });
+
+  describe('getDimensions', () => {
+    it('builds options from QueryMetricLast data when present', async () => {
+      state.lastDatapoints = JSON.stringify(datapoints);
+      const ds = makeDataSource();
+      const result = await ds.getDimensions('acs_ecs_dashboard', 'cpu_total', 'auto', []);
+
+      const actions = backendCalls.map((c) => c.params.Action);
+      expect(actions).toContain('QueryMetricLast');
+      expect(actions).not.toContain('QueryMetricList');
+
+      expect(result).toEqual([
+        { text: '{"instanceId":"i-1"}', value: '{"instanceId":"i-1"}' },
+        { text: '{"instanceId":"i-2"}', value: '{"instanceId":"i-2"}' },
+      ]);
+    });
+
+    it('falls back to QueryMetricList over a longer window when QueryMetricLast has no data', async () => {
+      // sparse metric (e.g. MNS queue): nothing reported in the recent window
+      const ds = makeDataSource();
+      const result = await ds.getDimensions('acs_mns_new', 'ActiveMessages', 'auto', []);
+
+      const listCall = backendCalls.find((c) => c.params.Action === 'QueryMetricList');
+      expect(listCall).toBeDefined();
+      expect(listCall?.params.Project).toBe('acs_mns_new');
+      expect(listCall?.params.Metric).toBe('ActiveMessages');
+      // period taken from the metric meta (largest supported = 300)
+      expect(listCall?.params.Period).toBe('300');
+      expect(listCall?.params.Length).toBe('1000');
+      // ~72h fallback window
+      const window = Number(listCall?.params.EndTime) - Number(listCall?.params.StartTime);
+      expect(window).toBe(72 * 60 * 60 * 1000);
+
+      expect(result).toEqual([
+        { text: '{"instanceId":"i-1"}', value: '{"instanceId":"i-1"}' },
+        { text: '{"instanceId":"i-2"}', value: '{"instanceId":"i-2"}' },
+      ]);
+    });
+
+    it('returns empty when neither QueryMetricLast nor the fallback yields data', async () => {
+      state.listDatapoints = '[]';
+      const ds = makeDataSource();
+      const result = await ds.getDimensions('acs_mns_new', 'NeverReported', 'auto', []);
+      expect(result).toEqual([]);
     });
   });
 });

@@ -40,6 +40,14 @@ const MAX_CURSOR_PAGES = 20;
  * lists are cached for a short while to avoid hammering the QPS-limited API.
  */
 const LIST_CACHE_TTL_MS = 30_000;
+/**
+ * Sparse metrics (e.g. MNS queue metrics report only a few times a day) have
+ * no datapoints inside the recent window used with DescribeMetricLast - worse,
+ * DescribeMetricLast returns nothing for them even over 24h. When that
+ * happens, dimensions are enumerated from DescribeMetricList over this
+ * fallback window instead.
+ */
+const DIMENSION_FALLBACK_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
   datasourceUid?: string;
@@ -182,7 +190,8 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
     params: QueryParams,
     type: 'list' | 'last',
     cursor = '',
-    count = 0
+    count = 0,
+    paginate = true
   ): Promise<Datapoint[]> {
     await util.wait(type === 'list' ? LIST_THROTTLE_MS : LAST_THROTTLE_MS);
     try {
@@ -191,7 +200,7 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
         return [];
       }
       const result: Datapoint[] = data.Datapoints ? (JSON.parse(data.Datapoints) as Datapoint[]) : [];
-      if (count >= MAX_CURSOR_PAGES) {
+      if (!paginate || count >= MAX_CURSOR_PAGES) {
         return result;
       }
       const next = data.Cursor || data.NextToken || '';
@@ -506,8 +515,11 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
   }
 
   /**
-   * Dimension values available for a project/metric, derived from the last
-   * 15 minutes of data (not supported for custom/log monitoring projects).
+   * Dimension values available for a project/metric, derived from recent data
+   * (not supported for custom/log monitoring projects). The primary source is
+   * the last 15 minutes via DescribeMetricLast; when that yields nothing
+   * (sparse metrics such as MNS queues report only a few times a day), the
+   * dimensions are enumerated from DescribeMetricList over a longer window.
    */
   async getDimensions(
     project: string,
@@ -532,12 +544,34 @@ export class DataSource extends DataSourceApi<CmsQuery, CmsDataSourceOptions> {
         params.Period = period;
       }
 
-      const data = await this.fetchMetricData(params, 'last');
-      if (data.length === 0) {
-        return [];
-      }
+      let data = await this.fetchMetricData(params, 'last');
       const meta = await this.queryMetricMeta(project, metric);
       if (util.isEmpty(meta) || util.isEmpty(meta[0].Dimensions)) {
+        return [];
+      }
+      if (data.length === 0) {
+        // Fall back to DescribeMetricList over a longer window. The period is
+        // taken from the metric meta (largest supported) so the amount of data
+        // fetched stays small; a single page is plenty to enumerate the
+        // distinct dimension combinations.
+        const periods = (meta[0].Periods ?? '')
+          .split(',')
+          .map((p) => parseInt(p, 10))
+          .filter((p) => !isNaN(p));
+        const fallbackParams: QueryParams = {
+          Action: 'QueryMetricList',
+          Project: project,
+          Metric: metric,
+          StartTime: endTime - DIMENSION_FALLBACK_WINDOW_MS,
+          EndTime: endTime,
+          Length: 1000,
+        };
+        if (periods.length > 0) {
+          fallbackParams.Period = String(Math.max(...periods));
+        }
+        data = await this.fetchMetricData(fallbackParams, 'list', '', 0, false);
+      }
+      if (data.length === 0) {
         return [];
       }
       return this.dimensionData(data, meta, dimensions);
