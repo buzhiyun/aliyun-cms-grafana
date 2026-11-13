@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.4 (2026-11-13)
+
+### Fixed
+
+- Query editor width no longer blows out when many dimensions are selected.
+  The editor fields previously never shrank (`flex: 1 0 auto`), so the
+  unwrapped width of all selected multi-value chips stretched the whole row
+  and squeezed neighboring fields. Fields now cap at the available row width
+  and selected values wrap onto multiple grid-like rows inside the
+  Dimensions / Y-column selects; individual chips ellipsize when a dimension
+  string is longer than the control.
+
 ## 3.0.3 (2026-11-09)
 
 ### Fixed

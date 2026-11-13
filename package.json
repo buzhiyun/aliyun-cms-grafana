@@ -1,6 +1,6 @@
 {
   "name": "aliyun-cms-grafana-datasource",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "description": "Aliyun Cloud Monitor (CMS) datasource for Grafana",
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",

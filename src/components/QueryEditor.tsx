@@ -1,13 +1,28 @@
 import React from 'react';
 
-import type { MetricFindValue, QueryEditorProps, SelectableValue } from '@grafana/data';
-import { AsyncMultiSelect, AsyncSelect, InlineField, InlineFieldRow, Input } from '@grafana/ui';
+import type { GrafanaTheme2, MetricFindValue, QueryEditorProps, SelectableValue } from '@grafana/data';
+import { AsyncMultiSelect, AsyncSelect, InlineField, InlineFieldRow, Input, useStyles2 } from '@grafana/ui';
+import { css } from '@emotion/css';
 
 import { DataSource } from '../datasource';
 import type { CmsDataSourceOptions, CmsQuery } from '../types';
 import * as util from '../util';
 
 type Props = QueryEditorProps<DataSource, CmsQuery, CmsDataSourceOptions>;
+
+/**
+ * Keeps multi-select chips inside the control width: the chips already wrap
+ * onto multiple rows (grid-like), but each chip must also be capped at the
+ * container width so long dimension JSON strings ellipsize instead of
+ * stretching the whole editor row.
+ */
+const getStyles = (_theme: GrafanaTheme2) => ({
+  multiSelectWrap: css({
+    [`& [class*='grafana-select-multi-value-container']`]: {
+      maxWidth: '100%',
+    },
+  }),
+});
 
 /**
  * Converts metric find values to select options, filtered by the select's
@@ -22,6 +37,7 @@ const toOptions = (items: MetricFindValue[], input = ''): Array<SelectableValue<
 };
 
 export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) {
+  const styles = useStyles2(getStyles);
   const q: CmsQuery = {
     project: 'acs_ecs_dashboard',
     metric: '',
@@ -74,6 +90,7 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
           labelWidth={14}
           tooltip='名字空间,表明监控数据所属产品,如"acs_ecs_dashboard","acs_rds_dashboard";支持自定义监控指标:acs_custom_$uid;日志监控指标:acs_logMonitor_$uid.'
           grow
+          shrink
         >
           <AsyncSelect
             key={`ns-${project}`}
@@ -84,7 +101,7 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
             onChange={onSelect('project')}
           />
         </InlineField>
-        <InlineField label="Metric" labelWidth={12} tooltip="监控项名称,例如cpu_total、cpu_other." grow>
+        <InlineField label="Metric" labelWidth={12} tooltip="监控项名称,例如cpu_total、cpu_other." grow shrink>
           <AsyncSelect
             key={`m-${project}`}
             value={q.metric ? { label: q.metric, value: q.metric } : null}
@@ -104,6 +121,7 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
           labelWidth={14}
           tooltip="时间间隔,统一用秒数来计算,例如60,300,900.如果不填写,则按照注册监控项时申明的上报周期来查询原始数据.如果填写统计周期,则查询对应的统计数据."
           grow
+          shrink
         >
           <AsyncSelect
             key={`p-${project}-${metric}`}
@@ -116,7 +134,7 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
             onChange={onSelect('period')}
           />
         </InlineField>
-        <InlineField label="Group" labelWidth={12} tooltip="云监控应用分组(自定义监控/日志监控使用)." grow>
+        <InlineField label="Group" labelWidth={12} tooltip="云监控应用分组(自定义监控/日志监控使用)." grow shrink>
           <AsyncSelect
             value={q.group ? { label: q.group, value: q.group } : null}
             loadOptions={(input) => datasource.getGroups().then((items) => toOptions(items, input))}
@@ -133,9 +151,11 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
           labelWidth={14}
           tooltip='监控数据维度.样例:{"instanceId":"xx-xxxx";"device":"/xx/xx"},{"instanceId":"xx-xxxx";"state":"xxx"},{"instanceId":"xx-xxxx";"port":"xx";"vip":"0.0.0.0"}'
           grow
+          shrink
         >
           <AsyncMultiSelect
             key={`d-${project}-${metric}`}
+            className={styles.multiSelectWrap}
             value={(q.dimensions ?? []).map((d) => ({ label: d, value: d }))}
             loadOptions={async (input) =>
               hasProjectMetric
@@ -154,9 +174,10 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
       </InlineFieldRow>
 
       <InlineFieldRow>
-        <InlineField label="Y - column" labelWidth={14} tooltip="统计目标,例如Average、Maximum." grow>
+        <InlineField label="Y - column" labelWidth={14} tooltip="统计目标,例如Average、Maximum." grow shrink>
           <AsyncMultiSelect
             key={`y-${project}-${metric}`}
+            className={styles.multiSelectWrap}
             value={(q.ycol ?? []).map((y) => ({ label: y, value: y }))}
             loadOptions={async (input) =>
               hasProjectMetric ? toOptions(await datasource.getStatistics(project, metric), input) : []
@@ -167,10 +188,10 @@ export function QueryEditor({ query, datasource, onChange, onRunQuery }: Props) 
             onChange={onMultiSelect('ycol')}
           />
         </InlineField>
-        <InlineField label="X - column" labelWidth={12} tooltip="时间轴,默认timestamp." grow>
+        <InlineField label="X - column" labelWidth={12} tooltip="时间轴,默认timestamp." grow shrink>
           <Input defaultValue={q.xcol} placeholder="x column name" onBlur={onInputBlur('xcol')} />
         </InlineField>
-        <InlineField label="Describe" labelWidth={12} tooltip="相同统计目标区分标识." grow>
+        <InlineField label="Describe" labelWidth={12} tooltip="相同统计目标区分标识." grow shrink>
           <Input defaultValue={q.describe} placeholder="" onBlur={onInputBlur('describe')} />
         </InlineField>
       </InlineFieldRow>
